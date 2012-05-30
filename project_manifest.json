@@ -1,0 +1,10 @@
+{
+    "projects": {
+        "asfasfga": "bar", 
+        "foo": "bar", 
+        "baz": "bar", 
+        "another_test_project": {
+            "url": "http://foo.bar"
+        }
+    }
+}

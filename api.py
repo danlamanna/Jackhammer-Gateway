@@ -69,5 +69,4 @@ def success_json(data, message=""):
                    data=data)
 
 if __name__ == "__main__":
-    app.run(host='216.70.85.115',
-            debug=True)
+    app.run()

@@ -1,17 +1,51 @@
 from flask import Flask, jsonify, request
-app = Flask(__name__)
+from mongokit import Connection, Document
+
+import bson
+from bson import BSON, json_util
 
 import json
-import os
 
-import pymongo
-from pymongo import Connection
+MONGODB_HOST = 'localhost'
+MONGODB_PORT = 27018
 
-conn = Connection()
+app = Flask(__name__)
+app.config.from_object(__name__)
 
-db = conn.jackhammer_manifest
+conn = Connection(app.config["MONGODB_HOST"],
+                  app.config["MONGODB_PORT"])
+
+db = conn.jackhammer
 
 projects = db.projects
+
+def actual_slug():
+    import re
+    def validate(value):
+        if not re.match('^\w+$', value):
+            raise Exception('%s is not a valid slug, only alphanumeric characters and underscores allowed.' % value)
+        else:
+            return True
+    return validate
+
+class Project(Document):
+    structure = {
+        'slug': basestring
+    }
+
+    validators = {
+        'slug': actual_slug()
+    }
+
+    required_fields = ['slug']
+
+    use_dot_notation = True
+    use_schemaless   = True
+
+    def __repr__(self):
+        return '<Project %s>' % self.slug
+
+conn.register([Project])
 
 """
 Create a new project  - POST /project/create
@@ -23,33 +57,60 @@ Delete single project - GET  /project/delete/project_slug
 # create
 @app.route("/project/create", methods=["POST"])
 def create_project():
-    project_def = json.loads(request.form["project_data"])
-    projects.insert(project_def)
-    
-    return success_json("", "Project created.")
+    try:
+        project = projects.Project()
+        
+        for k,v in json.loads(request.form["project_data"]).iteritems():
+            project[k] = v
+
+            
+
+        project.save()
+
+        return success_json("", "Project created.")
+    except:
+        return error_json("", "Project failed to be created.")
     
 # read
 @app.route("/projects/read")
 def read_projects():
-    projects_list = []
-    
-    for proj in projects.find():
-        del(proj["_id"])
-        projects_list.append(proj)
-    
-    return success_json(projects_list)
+    project_cursor  = projects.find()
+
+    project_records = {}
+
+    for record in project_cursor:
+        del(record["_id"]) # sloppy fix, learn json/bson_util
+        project_records[record["slug"]] = record
+
+    return success_json(project_records)
 
 @app.route("/project/read/<project_slug>")
 def read_project(project_slug):
-    project = projects.find({ "slug": project_slug }).limit(1)
+    try:
+        project = projects.find_one({ "slug": project_slug })
 
-    if project.count() > 0:
-        project = project[0]
         del(project["_id"])
 
         return success_json(project)
-    else:
+    except:
         return error_json("", "Project not in manifest.")
+
+@app.route("/project/update/<project_slug>")
+def update_project(project_slug, methods=["POST"]):
+    try:
+        project = projects.find_one({ "slug": project_slug })
+
+        update_data = json.loads(request.form["project_data"])
+
+        # edge case, if they go to /project/update/a and pass a slug of something other than a
+        if "slug" in update_data:
+            del(update_data["slug"])
+
+        final_project_data = dict(project.items() + update_data.items())
+
+        projects.update({ _id: project._id }, final_project_data)
+    except:
+        return error_json("", "Something went wrong!")        
 
 # delete
 @app.route("/project/delete/<project_slug>")
